@@ -20,8 +20,8 @@ import time
 class FlaskServerManager:
     def __init__(self, root):
         self.root = root
-        self.root.title("Flask Development Server Manager")
-        self.root.geometry("800x700")
+        self.root.title("Flask Studio")
+        self.root.geometry("900x750")
         self.root.resizable(True, True)
 
         # Server state
@@ -51,8 +51,8 @@ class FlaskServerManager:
         main_frame.columnconfigure(1, weight=1)
 
         # Title
-        title_label = ttk.Label(main_frame, text="Flask Development Server Manager",
-                                font=("Arial", 16, "bold"))
+        title_label = ttk.Label(main_frame, text="Flask Studio",
+                                font=("Arial", 18, "bold"))
         title_label.grid(row=0, column=0, columnspan=3, pady=(0, 20))
 
         # Project Directory Section
@@ -71,15 +71,21 @@ class FlaskServerManager:
         self.browse_btn = ttk.Button(dir_frame, text="Browse", command=self.browse_directory)
         self.browse_btn.grid(row=0, column=1)
 
+        # Virtual Environment Detection
+        self.venv_var = tk.StringVar()
+        self.venv_label = ttk.Label(main_frame, textvariable=self.venv_var,
+                                    foreground="blue")
+        self.venv_label.grid(row=3, column=0, columnspan=3, sticky=tk.W, pady=(0, 5))
+
         # Flask file detection
         self.flask_file_var = tk.StringVar()
         self.flask_file_label = ttk.Label(main_frame, textvariable=self.flask_file_var,
                                           foreground="green")
-        self.flask_file_label.grid(row=3, column=0, columnspan=3, sticky=tk.W, pady=(0, 10))
+        self.flask_file_label.grid(row=4, column=0, columnspan=3, sticky=tk.W, pady=(0, 10))
 
         # Server Configuration Section
         config_frame = ttk.LabelFrame(main_frame, text="Server Configuration", padding="10")
-        config_frame.grid(row=4, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=(0, 10))
+        config_frame.grid(row=5, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=(0, 10))
         config_frame.columnconfigure(1, weight=1)
 
         # Port selection
@@ -94,15 +100,29 @@ class FlaskServerManager:
                                        variable=self.auto_port_var)
         auto_port_cb.grid(row=0, column=2, sticky=tk.W, padx=(20, 0))
 
+        # Python Interpreter Selection
+        ttk.Label(config_frame, text="Python:").grid(row=2, column=0, sticky=tk.W, padx=(0, 10), pady=(10, 0))
+
+        self.python_var = tk.StringVar(value=sys.executable)
+        python_frame = ttk.Frame(config_frame)
+        python_frame.grid(row=2, column=1, columnspan=2, sticky=(tk.W, tk.E), pady=(10, 0))
+        python_frame.columnconfigure(0, weight=1)
+
+        python_entry = ttk.Entry(python_frame, textvariable=self.python_var, state="readonly")
+        python_entry.grid(row=0, column=0, sticky=(tk.W, tk.E), padx=(0, 10))
+
+        detect_venv_btn = ttk.Button(python_frame, text="Detect Venv", command=self.detect_virtual_env)
+        detect_venv_btn.grid(row=0, column=1)
+
         # Debug mode checkbox
         self.debug_var = tk.BooleanVar(value=True)
         debug_cb = ttk.Checkbutton(config_frame, text="Debug mode (auto-reload)",
                                    variable=self.debug_var)
-        debug_cb.grid(row=1, column=0, columnspan=3, sticky=tk.W, pady=(10, 0))
+        debug_cb.grid(row=3, column=0, columnspan=3, sticky=tk.W, pady=(10, 0))
 
         # Server Control Section
         control_frame = ttk.Frame(main_frame)
-        control_frame.grid(row=5, column=0, columnspan=3, pady=(10, 0))
+        control_frame.grid(row=6, column=0, columnspan=3, pady=(10, 0))
 
         self.start_btn = ttk.Button(control_frame, text="Start Server",
                                     command=self.start_server, style="Accent.TButton")
@@ -120,25 +140,25 @@ class FlaskServerManager:
         self.status_var = tk.StringVar(value="Server: Stopped")
         status_label = ttk.Label(main_frame, textvariable=self.status_var,
                                  font=("Arial", 10, "bold"))
-        status_label.grid(row=6, column=0, columnspan=3, pady=(10, 0))
+        status_label.grid(row=7, column=0, columnspan=3, pady=(10, 0))
 
         # URL Display
         self.url_var = tk.StringVar()
         url_label = ttk.Label(main_frame, textvariable=self.url_var,
                               foreground="blue", cursor="hand2")
-        url_label.grid(row=7, column=0, columnspan=3, pady=(5, 0))
+        url_label.grid(row=8, column=0, columnspan=3, pady=(5, 0))
         url_label.bind("<Button-1>", lambda e: self.open_browser())
 
         # Console Output
         ttk.Label(main_frame, text="Server Output:",
-                  font=("Arial", 10, "bold")).grid(row=8, column=0, sticky=tk.W, pady=(20, 5))
+                  font=("Arial", 10, "bold")).grid(row=9, column=0, sticky=tk.W, pady=(20, 5))
 
         # Console frame with scrollbar
         console_frame = ttk.Frame(main_frame)
-        console_frame.grid(row=9, column=0, columnspan=3, sticky=(tk.W, tk.E, tk.N, tk.S), pady=(0, 10))
+        console_frame.grid(row=10, column=0, columnspan=3, sticky=(tk.W, tk.E, tk.N, tk.S), pady=(0, 10))
         console_frame.columnconfigure(0, weight=1)
         console_frame.rowconfigure(0, weight=1)
-        main_frame.rowconfigure(9, weight=1)
+        main_frame.rowconfigure(10, weight=1)
 
         self.console_text = scrolledtext.ScrolledText(console_frame, height=15, width=80,
                                                       bg="black", fg="white", font=("Consolas", 9))
@@ -146,11 +166,87 @@ class FlaskServerManager:
 
         # Clear console button
         clear_btn = ttk.Button(main_frame, text="Clear Console", command=self.clear_console)
-        clear_btn.grid(row=10, column=0, sticky=tk.W)
+        clear_btn.grid(row=11, column=0, sticky=tk.W)
 
         # Update flask file detection if directory already set
         if self.project_path:
             self.detect_flask_files()
+            self.detect_virtual_env()
+
+    def detect_virtual_env(self):
+        """Detect and suggest virtual environment for the project"""
+        if not self.project_path:
+            self.venv_var.set("")
+            return
+
+        venv_paths = [
+            os.path.join(self.project_path, 'venv'),
+            os.path.join(self.project_path, '.venv'),
+            os.path.join(self.project_path, 'env'),
+            os.path.join(self.project_path, '.env')
+        ]
+
+        for venv_path in venv_paths:
+            # Check for Scripts (Windows) or bin (Unix) directory
+            scripts_dir = os.path.join(venv_path, 'Scripts')  # Windows
+            bin_dir = os.path.join(venv_path, 'bin')  # Unix/Linux/Mac
+
+            if os.path.exists(scripts_dir):
+                python_exe = os.path.join(scripts_dir, 'python.exe')
+                if os.path.exists(python_exe):
+                    self.python_var.set(python_exe)
+                    self.venv_var.set(f"🐍 Virtual environment detected: {os.path.basename(venv_path)}")
+                    return
+            elif os.path.exists(bin_dir):
+                python_exe = os.path.join(bin_dir, 'python')
+                if os.path.exists(python_exe):
+                    self.python_var.set(python_exe)
+                    self.venv_var.set(f"🐍 Virtual environment detected: {os.path.basename(venv_path)}")
+                    return
+
+        # Check if current Python has Flask installed
+        try:
+            import flask
+            self.venv_var.set("✓ Flask available in current Python environment")
+        except ImportError:
+            self.venv_var.set("⚠ No virtual environment found. Flask may not be installed.")
+
+    def check_flask_installation(self, python_path):
+        """Check if Flask is installed in the specified Python environment"""
+        try:
+            result = subprocess.run([
+                python_path, '-c', 'import flask; print(f"Flask {flask.__version__} installed")'
+            ], capture_output=True, text=True, timeout=10)
+
+            if result.returncode == 0:
+                return True, result.stdout.strip()
+            else:
+                return False, "Flask not installed"
+        except Exception as e:
+            return False, str(e)
+
+    def install_flask(self, python_path):
+        """Install Flask in the specified Python environment"""
+        self.log_message("Installing Flask...")
+        try:
+            # Install Flask using pip
+            result = subprocess.run([
+                python_path, '-m', 'pip', 'install', 'flask'
+            ], capture_output=True, text=True, cwd=self.project_path)
+
+            if result.returncode == 0:
+                self.log_message("✓ Flask installed successfully!")
+                self.log_message(result.stdout)
+                return True
+            else:
+                self.log_message(f"✗ Flask installation failed: {result.stderr}")
+                messagebox.showerror("Installation Failed", f"Failed to install Flask:\n{result.stderr}")
+                return False
+        except Exception as e:
+            error_msg = f"Error installing Flask: {str(e)}"
+            self.log_message(f"✗ {error_msg}")
+            messagebox.showerror("Installation Error", error_msg)
+            return False
 
     def browse_directory(self):
         """Open file dialog to select Flask project directory"""
@@ -163,6 +259,7 @@ class FlaskServerManager:
             self.project_path = directory
             self.dir_var.set(directory)
             self.detect_flask_files()
+            self.detect_virtual_env()
             self.save_config()
 
     def detect_flask_files(self):
@@ -172,23 +269,32 @@ class FlaskServerManager:
             return
 
         flask_files = []
-        common_names = ['app.py', 'run.py', 'main.py', 'server.py', '__init__.py']
+        main_flask_files = []  # Files that can actually run the app
 
-        # Check for common Flask file names
+        # Check all Python files for Flask imports
         for root, dirs, files in os.walk(self.project_path):
             for file in files:
-                if file in common_names or file.endswith('.py'):
+                if file.endswith('.py'):
                     file_path = os.path.join(root, file)
                     try:
                         with open(file_path, 'r', encoding='utf-8') as f:
                             content = f.read()
                             if 'Flask(' in content or 'from flask import' in content or 'import flask' in content:
-                                flask_files.append(os.path.relpath(file_path, self.project_path))
+                                rel_path = os.path.relpath(file_path, self.project_path)
+                                flask_files.append(rel_path)
+
+                                # Check if this file can run the app (has app.run() or __main__)
+                                if 'app.run(' in content or 'if __name__' in content:
+                                    main_flask_files.append(rel_path)
+
                     except (UnicodeDecodeError, PermissionError):
                         continue
 
         if flask_files:
-            self.flask_file_var.set(f"✓ Flask files detected: {', '.join(flask_files[:3])}")
+            if main_flask_files:
+                self.flask_file_var.set(f"✓ Flask app files found: {', '.join(main_flask_files[:2])} (runnable)")
+            else:
+                self.flask_file_var.set(f"✓ Flask files detected: {', '.join(flask_files[:3])} (may need flask run)")
         else:
             self.flask_file_var.set("⚠ No Flask files detected in this directory")
 
@@ -209,14 +315,35 @@ class FlaskServerManager:
             messagebox.showerror("Error", "Please select a Flask project directory first!")
             return
 
+        # Check Flask installation before starting
+        python_path = self.python_var.get()
+        flask_available, flask_info = self.check_flask_installation(python_path)
+
+        if not flask_available:
+            response = messagebox.askyesno(
+                "Flask Not Found",
+                f"Flask is not installed in the selected Python environment.\n\n"
+                f"Python: {python_path}\n\n"
+                f"Would you like to install Flask automatically?\n"
+                f"(This will run: pip install flask)"
+            )
+            if response:
+                if not self.install_flask(python_path):
+                    return
+            else:
+                return
+        else:
+            self.log_message(f"✓ {flask_info}")
+
         if self.server_running:
             messagebox.showwarning("Warning", "Server is already running!")
             return
 
-        # Find main Flask file
-        main_files = ['roscodetech.py', 'run.py', 'app.py', 'main.py', 'server.py']
+        # Find main Flask file - first check common names, then scan all Python files
+        main_files = ['app.py', 'run.py', 'main.py', 'server.py', 'roscodetech.py']
         flask_file = None
 
+        # First, try common file names in root directory
         for file in main_files:
             potential_path = os.path.join(self.project_path, file)
             if os.path.exists(potential_path):
@@ -233,8 +360,31 @@ class FlaskServerManager:
                         flask_file = os.path.join('mysite', file)
                         break
 
+        # If still not found, scan all Python files for Flask imports
         if not flask_file:
-            messagebox.showerror("Error", "No Flask application file found!\nLooking for: " + ", ".join(main_files))
+            self.log_message("Scanning for Flask files...")
+            for root, dirs, files in os.walk(self.project_path):
+                for file in files:
+                    if file.endswith('.py'):
+                        file_path = os.path.join(root, file)
+                        try:
+                            with open(file_path, 'r', encoding='utf-8') as f:
+                                content = f.read()
+                                # Look for Flask app creation patterns
+                                if (
+                                        'Flask(' in content or 'from flask import' in content or 'import flask' in content) and \
+                                        ('app.run(' in content or 'if __name__' in content):
+                                    flask_file = os.path.relpath(file_path, self.project_path)
+                                    self.log_message(f"Found Flask app file: {flask_file}")
+                                    break
+                        except (UnicodeDecodeError, PermissionError):
+                            continue
+                if flask_file:
+                    break
+
+        if not flask_file:
+            messagebox.showerror("Error",
+                                 "No Flask application file found!\n\nMake sure your Flask file contains:\n- Flask import\n- app.run() or if __name__ == '__main__'")
             return
 
         # Determine port
@@ -252,7 +402,7 @@ class FlaskServerManager:
                 messagebox.showerror("Error", "Invalid port number!")
                 return
 
-        # Prepare environment
+        # Setup environment variables
         env = os.environ.copy()
         env['FLASK_APP'] = flask_file
         env['FLASK_ENV'] = 'development' if self.debug_var.get() else 'production'
@@ -285,16 +435,15 @@ class FlaskServerManager:
             os.chdir(self.project_path)
 
             # Prepare command
+            python_path = self.python_var.get()
             cmd = [
-                sys.executable,
-                flask_file,
-                '--host=127.0.0.1',
-                f'--port={self.server_port}'
+                python_path,
+                flask_file
             ]
 
             # For files that don't accept command line args, use flask run
             flask_run_cmd = [
-                sys.executable, '-m', 'flask', 'run',
+                python_path, '-m', 'flask', 'run',
                 '--host=127.0.0.1',
                 f'--port={self.server_port}',
                 '--reload' if self.debug_var.get() else '--no-reload'
@@ -393,7 +542,11 @@ class FlaskServerManager:
     def clear_console(self):
         """Clear the console output"""
         self.console_text.delete('1.0', tk.END)
-        self.log_message("Console cleared.")
+        # Log message after clearing, not during clearing to avoid recursion
+        timestamp = time.strftime("%H:%M:%S")
+        formatted_message = f"[{timestamp}] Console cleared.\n"
+        self.console_text.insert(tk.END, formatted_message)
+        self.console_text.see(tk.END)
 
     def save_config(self):
         """Save configuration to file"""
