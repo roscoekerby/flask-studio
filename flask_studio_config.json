@@ -1,6 +1,8 @@
 {
-  "project_path": "C:/ROSCODE TECH/IDScan/idscan-ec2-flask-server",
+  "project_path": "C:/ROSCODE TECH/SkinSight/skinsightapppythonanywhereserver",
   "server_port": 5000,
   "run_method": "auto",
-  "debug_mode": true
+  "debug_mode": true,
+  "flask_app_override": "skinsightapp:app",
+  "python_path": "C:/ROSCODE TECH/SkinSight/skinsightapppythonanywhereserver\\.venv\\Scripts\\python.exe"
 }
