@@ -67,7 +67,9 @@ class FlaskProjectAnalyzer:
                             'has_app_run': self.has_app_run(file_path),
                             'has_routes': self.has_routes(file_path),
                             'has_blueprints': self.has_blueprints(file_path),
-                            'is_factory': self.is_app_factory(file_path)
+                            'is_factory': self.is_app_factory(file_path),
+                            'has_app_creation': self.has_app_creation(file_path),
+                            'app_variable': self.detect_app_variable(file_path)
                         })
 
         self.flask_files = flask_files
@@ -83,7 +85,8 @@ class FlaskProjectAnalyzer:
                     'import flask' in content,
                     'Flask(' in content,
                     '@app.route' in content,
-                    'Blueprint(' in content
+                    'Blueprint(' in content,
+                    'create_app(' in content
                 ])
         except (UnicodeDecodeError, PermissionError):
             return False
@@ -93,7 +96,7 @@ class FlaskProjectAnalyzer:
         try:
             with open(file_path, 'r', encoding='utf-8') as f:
                 content = f.read()
-                return 'app.run(' in content or '__name__' in content
+                return 'app.run(' in content or ('__name__' in content and '__main__' in content)
         except:
             return False
 
@@ -124,6 +127,41 @@ class FlaskProjectAnalyzer:
         except:
             return False
 
+    def has_app_creation(self, file_path):
+        """Check if file creates a Flask app instance"""
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+                return any([
+                    re.search(r'\w+\s*=\s*Flask\s*\(', content),
+                    re.search(r'\w+\s*=\s*create_app\s*\(', content),
+                    re.search(r'\w+\s*=\s*[\w\.]+\.create_app\s*\(', content)
+                ])
+        except:
+            return False
+
+    def detect_app_variable(self, file_path):
+        """Detect the Flask app variable name in a file"""
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+
+                # Look for Flask app creation patterns
+                patterns = [
+                    r'(\w+)\s*=\s*Flask\s*\(',  # app = Flask(...)
+                    r'(\w+)\s*=\s*create_app\s*\(',  # app = create_app(...)
+                    r'(\w+)\s*=\s*[\w\.]+\.create_app\s*\(',  # app = module.create_app(...)
+                ]
+
+                for pattern in patterns:
+                    matches = re.findall(pattern, content)
+                    if matches:
+                        return matches[0]  # Return first match
+
+                return None
+        except Exception as e:
+            return None
+
     def detect_routing_pattern(self):
         """Detect the routing pattern used in the project"""
         has_direct_routes = any(f['has_routes'] and not f['has_blueprints'] for f in self.flask_files)
@@ -142,17 +180,44 @@ class FlaskProjectAnalyzer:
         return self.routing_pattern
 
     def find_main_app_file(self):
-        """Find the main application file"""
-        # Priority order for main app files
-        priority_names = ['app.py', 'run.py', 'main.py', 'server.py', '__init__.py']
+        """Find the main application file with intelligent detection"""
+        # Get project name for dynamic file detection
+        project_name = os.path.basename(self.project_path).lower()
+
+        # Dynamic priority list that adapts to project structure
+        priority_patterns = [
+            # 1. Files matching project name + app.py pattern
+            f"{project_name}app.py",
+            f"{project_name}.py",
+            # 2. Standard entry point files
+            'wsgi.py',
+            'app.py',
+            'run.py',
+            'main.py',
+            'server.py',
+            # 3. Factory files in subdirectories
+            '__init__.py'
+        ]
 
         # Look for files with app.run() first
         runnable_files = [f for f in self.flask_files if f['has_app_run']]
 
-        # Check priority names in runnable files
-        for name in priority_names:
+        # Check priority patterns in runnable files
+        for pattern in priority_patterns:
             for f in runnable_files:
-                if os.path.basename(f['path']) == name:
+                filename = os.path.basename(f['path'])
+                if filename == pattern or filename.lower() == pattern:
+                    self.main_app_file = f['path']
+                    return self.main_app_file
+
+        # Look for files that create app instances (even without app.run())
+        app_creation_files = [f for f in self.flask_files if f['has_app_creation']]
+
+        # Check priority patterns in app creation files
+        for pattern in priority_patterns:
+            for f in app_creation_files:
+                filename = os.path.basename(f['path'])
+                if filename == pattern or filename.lower() == pattern:
                     self.main_app_file = f['path']
                     return self.main_app_file
 
@@ -360,12 +425,21 @@ class FlaskServerManager:
                                     foreground="gray", font=("Arial", 8))
         run_method_info.grid(row=1, column=2, sticky=tk.W, padx=(10, 0), pady=(10, 0))
 
+        # FLASK_APP Override
+        ttk.Label(config_frame, text="FLASK_APP:").grid(row=2, column=0, sticky=tk.W, padx=(0, 10), pady=(10, 0))
+        self.flask_app_var = tk.StringVar()
+        flask_app_entry = ttk.Entry(config_frame, textvariable=self.flask_app_var, width=30)
+        flask_app_entry.grid(row=2, column=1, sticky=(tk.W, tk.E), pady=(10, 0))
+
+        auto_detect_btn = ttk.Button(config_frame, text="Auto-Detect", command=self.auto_detect_flask_app)
+        auto_detect_btn.grid(row=2, column=2, sticky=tk.W, padx=(10, 0), pady=(10, 0))
+
         # Python Interpreter Selection
-        ttk.Label(config_frame, text="Python:").grid(row=2, column=0, sticky=tk.W, padx=(0, 10), pady=(10, 0))
+        ttk.Label(config_frame, text="Python:").grid(row=3, column=0, sticky=tk.W, padx=(0, 10), pady=(10, 0))
 
         self.python_var = tk.StringVar(value=sys.executable)
         python_frame = ttk.Frame(config_frame)
-        python_frame.grid(row=2, column=1, columnspan=2, sticky=(tk.W, tk.E), pady=(10, 0))
+        python_frame.grid(row=3, column=1, columnspan=2, sticky=(tk.W, tk.E), pady=(10, 0))
         python_frame.columnconfigure(0, weight=1)
 
         python_entry = ttk.Entry(python_frame, textvariable=self.python_var, state="readonly")
@@ -378,7 +452,7 @@ class FlaskServerManager:
         self.debug_var = tk.BooleanVar(value=True)
         debug_cb = ttk.Checkbutton(config_frame, text="Debug mode (auto-reload)",
                                    variable=self.debug_var)
-        debug_cb.grid(row=3, column=0, columnspan=3, sticky=tk.W, pady=(10, 0))
+        debug_cb.grid(row=4, column=0, columnspan=3, sticky=tk.W, pady=(10, 0))
         current_row += 1
 
         # Server Control Section
@@ -412,7 +486,7 @@ class FlaskServerManager:
         url_label.grid(row=current_row, column=0, columnspan=3, pady=(5, 0))
         url_label.bind("<Button-1>", lambda e: self.open_browser())
 
-        # Update project analysis if directory already set (but only after all tabs are created)
+        # Update project analysis if directory already set
         if self.project_path:
             self.root.after(100, self.delayed_analyze_project)
 
@@ -488,12 +562,30 @@ class FlaskServerManager:
             self.update_project_info_display()
             self.update_analysis_tree()
             self.update_run_method_recommendation()
+            self.auto_detect_flask_app()  # Auto-detect FLASK_APP after analysis
 
             self.log_message(f"✓ Project analysis complete. Found {len(self.project_info['flask_files'])} Flask files")
 
         except Exception as e:
             self.log_message(f"✗ Error analyzing project: {str(e)}")
             messagebox.showerror("Analysis Error", f"Failed to analyze project:\n{str(e)}")
+
+    def auto_detect_flask_app(self):
+        """Auto-detect the correct FLASK_APP setting"""
+        if not self.project_info:
+            return
+
+        try:
+            main_app_file = self.project_info.get('main_app_file')
+            if main_app_file:
+                detector = SmartFlaskDetector(self.project_path, main_app_file)
+                flask_app_setting = detector.get_flask_app_setting()
+                self.flask_app_var.set(flask_app_setting)
+                self.log_message(f"🧠 Auto-detected FLASK_APP: {flask_app_setting}")
+            else:
+                self.log_message("⚠ Could not auto-detect FLASK_APP - no main app file found")
+        except Exception as e:
+            self.log_message(f"⚠ Error auto-detecting FLASK_APP: {str(e)}")
 
     def update_run_method_recommendation(self):
         """Update the run method recommendation"""
@@ -560,7 +652,7 @@ class FlaskServerManager:
         if self.project_info.get('flask_files'):
             files_item = self.analysis_tree.insert("", "end", text="Flask Files",
                                                    values=(
-                                                   "Category", f"{len(self.project_info['flask_files'])} files"))
+                                                       "Category", f"{len(self.project_info['flask_files'])} files"))
 
             for f in self.project_info['flask_files']:
                 details = []
@@ -572,6 +664,10 @@ class FlaskServerManager:
                     details.append("uses blueprints")
                 if f['is_factory']:
                     details.append("app factory")
+                if f['has_app_creation']:
+                    details.append("creates app")
+                if f['app_variable']:
+                    details.append(f"app var: {f['app_variable']}")
 
                 self.analysis_tree.insert(files_item, "end", text=f['path'],
                                           values=("Flask File", ", ".join(details) if details else "basic"))
@@ -580,7 +676,7 @@ class FlaskServerManager:
         if self.project_info.get('blueprints'):
             bp_item = self.analysis_tree.insert("", "end", text="Blueprints",
                                                 values=(
-                                                "Category", f"{len(self.project_info['blueprints'])} blueprints"))
+                                                    "Category", f"{len(self.project_info['blueprints'])} blueprints"))
 
             for bp in self.project_info['blueprints']:
                 self.analysis_tree.insert(bp_item, "end", text=bp['name'],
@@ -589,90 +685,6 @@ class FlaskServerManager:
         # Expand all items
         for item in self.analysis_tree.get_children():
             self.analysis_tree.item(item, open=True)
-
-    def detect_flask_app_variable(self, file_path):
-        """Detect the Flask app variable name in a file"""
-        try:
-            full_path = os.path.join(self.project_path, file_path)
-            with open(full_path, 'r', encoding='utf-8') as f:
-                content = f.read()
-
-                # Look for Flask app creation patterns
-                patterns = [
-                    r'(\w+)\s*=\s*Flask\(',  # app = Flask(...)
-                    r'(\w+)\s*=\s*create_app\(',  # app = create_app(...)
-                ]
-
-                for pattern in patterns:
-                    matches = re.findall(pattern, content)
-                    if matches:
-                        return matches[0]  # Return first match
-
-                return None
-        except Exception as e:
-            self.log_message(f"Error detecting Flask app variable: {str(e)}")
-            return None
-
-    def create_wsgi_file(self):
-        """Create a wsgi.py file for flask run compatibility"""
-        wsgi_content = """#!/usr/bin/env python3
-'''
-WSGI Entry Point
-Auto-generated by Flask Studio Pro
-'''
-
-import os
-import sys
-
-# Add project root to Python path
-project_root = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, project_root)
-
-# Try different import patterns
-app = None
-
-try:
-    # Try app factory pattern
-    from tmgpapp import create_app
-    app = create_app()
-    print("✓ Loaded app using factory pattern")
-except ImportError:
-    try:
-        # Try direct app import
-        from tmgpapp.tmgp_app import app
-        print("✓ Loaded app from tmgp_app.py")
-    except ImportError:
-        try:
-            # Try main app file
-            from app import app
-            print("✓ Loaded app from app.py") 
-        except ImportError:
-            print("❌ Could not find Flask app")
-            raise ImportError("No Flask application found")
-
-if __name__ == "__main__":
-    if app:
-        app.run(debug=True, host='127.0.0.1', port=5000)
-"""
-
-        wsgi_path = os.path.join(self.project_path, 'wsgi.py')
-        with open(wsgi_path, 'w', encoding='utf-8') as f:
-            f.write(wsgi_content)
-
-        self.log_message(f"✓ Created wsgi.py: {wsgi_path}")
-        return wsgi_path
-        """Update the run method recommendation"""
-        if not self.project_info:
-            return
-
-        recommended = self.project_info.get('recommended_run_method', 'flask_run')
-
-        if self.run_method_var.get() == "auto":
-            info_text = f"Recommended: {recommended}"
-        else:
-            info_text = f"Manual override (recommended: {recommended})"
-
-        self.run_method_info_var.set(info_text)
 
     def detect_virtual_env(self):
         """Detect and suggest virtual environment for the project"""
@@ -794,26 +806,18 @@ if __name__ == "__main__":
             messagebox.showerror("Error", "No Flask application file found! Please analyze the project first.")
             return
 
-        # Set FLASK_APP for flask run method
+        # Set FLASK_APP - use manual override if set, otherwise use smart detection
         if run_method == 'flask_run':
-            # For app factory pattern, use module:function format
-            if self.project_info.get('app_factory'):
-                factory_file = self.project_info['app_factory']['file']
-                factory_func = self.project_info['app_factory']['function']
-                module_name = os.path.splitext(factory_file.replace('/', '.').replace('\\', '.'))[0]
-                env['FLASK_APP'] = f"{module_name}:{factory_func}"
-                self.log_message(f"Setting FLASK_APP to: {env['FLASK_APP']}")
+            if self.flask_app_var.get().strip():
+                # Use manual override
+                flask_app_setting = self.flask_app_var.get().strip()
+                env['FLASK_APP'] = flask_app_setting
+                self.log_message(f"Using manual FLASK_APP override: {flask_app_setting}")
             else:
-                # For non-factory apps, we need to check if the file has a Flask app instance
-                flask_app_var = self.detect_flask_app_variable(main_app_file)
-                if flask_app_var:
-                    module_name = os.path.splitext(main_app_file.replace('/', '.').replace('\\', '.'))[0]
-                    env['FLASK_APP'] = f"{module_name}:{flask_app_var}"
-                    self.log_message(f"Setting FLASK_APP to: {env['FLASK_APP']}")
-                else:
-                    # Fallback to direct execution if no app variable found
-                    self.log_message("No Flask app variable found, switching to direct execution")
-                    run_method = 'direct'
+                # Use smart detection
+                flask_app_setting = self.get_smart_flask_app_setting(main_app_file)
+                env['FLASK_APP'] = flask_app_setting
+                self.log_message(f"🧠 Smart detection: FLASK_APP={flask_app_setting}")
 
         # Start server in a separate thread
         self.server_thread = threading.Thread(
@@ -848,13 +852,6 @@ if __name__ == "__main__":
             python_path = self.python_var.get()
 
             if run_method == 'flask_run':
-                # Create wsgi.py if it doesn't exist for better flask run compatibility
-                wsgi_path = os.path.join(self.project_path, 'wsgi.py')
-                if not os.path.exists(wsgi_path):
-                    self.create_wsgi_file()
-                    env['FLASK_APP'] = 'wsgi:app'
-                    self.log_message("Using wsgi.py entry point for flask run")
-
                 # Use flask run command
                 cmd = [
                     python_path, '-m', 'flask', 'run',
@@ -868,11 +865,14 @@ if __name__ == "__main__":
 
             self.log_message(f"Executing: {' '.join(cmd)}")
 
+            # Set encoding explicitly and add error handling
             self.server_process = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 universal_newlines=True,
+                encoding='utf-8',
+                errors='replace',
                 env=env,
                 cwd=self.project_path
             )
@@ -895,6 +895,14 @@ if __name__ == "__main__":
         except Exception as e:
             self.root.after(0, lambda: self.log_message(f"Error starting server: {str(e)}"))
             self.root.after(0, self._server_stopped)
+
+    def get_smart_flask_app_setting(self, flask_file):
+        """Use smart detection to determine correct FLASK_APP setting"""
+        detector = SmartFlaskDetector(self.project_path, flask_file)
+        flask_app = detector.get_flask_app_setting()
+
+        self.log_message(f"🧠 Smart detection result: FLASK_APP={flask_app}")
+        return flask_app
 
     def install_flask(self, python_path):
         """Install Flask in the specified Python environment"""
@@ -990,7 +998,8 @@ if __name__ == "__main__":
             'project_path': self.project_path,
             'server_port': self.server_port,
             'run_method': self.run_method_var.get(),
-            'debug_mode': self.debug_var.get()
+            'debug_mode': self.debug_var.get(),
+            'flask_app_override': self.flask_app_var.get() if hasattr(self, 'flask_app_var') else ''
         }
         try:
             with open(self.config_file, 'w') as f:
@@ -1006,6 +1015,7 @@ if __name__ == "__main__":
                     config = json.load(f)
                     self.project_path = config.get('project_path', '')
                     self.server_port = config.get('server_port', 5000)
+                    # Note: flask_app_override will be set after widgets are created
             except Exception as e:
                 print(f"Error loading config: {e}")
 
@@ -1019,6 +1029,328 @@ if __name__ == "__main__":
         else:
             self.save_config()
             self.root.destroy()
+
+
+class SmartFlaskDetector:
+    """Intelligently detects the correct FLASK_APP setting for any Flask project"""
+
+    def __init__(self, project_path, main_app_file):
+        self.project_path = project_path
+        self.main_app_file = main_app_file
+        self.project_name = os.path.basename(project_path).lower()
+
+    def get_flask_app_setting(self):
+        """
+        Dynamically determine the correct FLASK_APP setting by analyzing the project structure.
+        Returns the correct FLASK_APP string to use.
+        """
+
+        # Strategy 1: Handle project-specific app files (like projectnameapp.py)
+        project_specific = self._check_project_specific_files()
+        if project_specific:
+            return project_specific
+
+        # Strategy 2: Check if main file has ready-to-use app variable
+        app_var = self._check_main_file_app_variable()
+        if app_var:
+            return app_var
+
+        # Strategy 3: Check for common WSGI patterns
+        wsgi_pattern = self._check_wsgi_patterns()
+        if wsgi_pattern:
+            return wsgi_pattern
+
+        # Strategy 4: Check for app factory patterns and how they're used
+        factory_pattern = self._check_factory_patterns()
+        if factory_pattern:
+            return factory_pattern
+
+        # Strategy 5: Deep analysis of Flask instantiation
+        deep_pattern = self._deep_flask_analysis()
+        if deep_pattern:
+            return deep_pattern
+
+        # Fallback: Use filename as module
+        module_name = os.path.splitext(self.main_app_file.replace('/', '.').replace('\\', '.'))[0]
+        return f"{module_name}:app"
+
+    def _check_project_specific_files(self):
+        """Check for project-specific app files like projectnameapp.py"""
+        if not self.main_app_file:
+            return None
+
+        filename = os.path.basename(self.main_app_file)
+        filename_no_ext = os.path.splitext(filename)[0]
+
+        # Pattern: projectnameapp.py
+        if filename_no_ext.endswith('app') and len(filename_no_ext) > 3:
+            try:
+                file_path = os.path.join(self.project_path, self.main_app_file)
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    content = f.read()
+
+                # Look for app variable assignments
+                app_patterns = [
+                    r'(\w+)\s*=\s*Flask\s*\(',
+                    r'(\w+)\s*=\s*create_app\s*\(',
+                    r'(\w+)\s*=\s*[\w\.]+\.create_app\s*\(',
+                ]
+
+                for pattern in app_patterns:
+                    matches = re.findall(pattern, content)
+                    if matches:
+                        app_var = matches[0]
+                        print(f"✓ Found project-specific app file: {filename_no_ext}:{app_var}")
+                        return f"{filename_no_ext}:{app_var}"
+
+                # Default app variable for project-specific files
+                print(f"✓ Using default app variable for project file: {filename_no_ext}:app")
+                return f"{filename_no_ext}:app"
+
+            except Exception as e:
+                print(f"Error analyzing project-specific file: {e}")
+
+        return None
+
+    def _check_main_file_app_variable(self):
+        """Check if the main file has a direct app variable"""
+        if not self.main_app_file:
+            return None
+
+        file_path = os.path.join(self.project_path, self.main_app_file)
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+
+            # Look for direct app assignments (not function definitions)
+            patterns = [
+                (r'^(\w+)\s*=\s*Flask\s*\(', 'Flask instantiation'),
+                (r'^(\w+)\s*=\s*create_app\s*\(', 'create_app call'),
+                (r'^(\w+)\s*=\s*[\w\.]+\.create_app\s*\(', 'module.create_app call'),
+                (r'^(\w+)\s*=\s*application', 'application alias'),
+            ]
+
+            for pattern, description in patterns:
+                matches = re.findall(pattern, content, re.MULTILINE)
+                if matches:
+                    var_name = matches[0]
+                    module_name = os.path.splitext(self.main_app_file.replace('/', '.').replace('\\', '.'))[0]
+                    print(f"✓ Found {description}: {var_name}")
+                    return f"{module_name}:{var_name}"
+
+        except Exception as e:
+            print(f"Error reading main file: {e}")
+
+        return None
+
+    def _check_wsgi_patterns(self):
+        """Check for common WSGI file patterns"""
+        wsgi_files = ['wsgi.py', 'application.py', 'app.py']
+
+        for wsgi_file in wsgi_files:
+            wsgi_path = os.path.join(self.project_path, wsgi_file)
+            if os.path.exists(wsgi_path) and wsgi_file != os.path.basename(self.main_app_file):
+                app_var = self._find_app_variable_in_file(wsgi_path)
+                if app_var:
+                    module_name = os.path.splitext(wsgi_file)[0]
+                    print(f"✓ Found WSGI pattern in {wsgi_file}: {app_var}")
+                    return f"{module_name}:{app_var}"
+
+        return None
+
+    def _check_factory_patterns(self):
+        """Check for app factory patterns and how they're used"""
+        factory_info = self._find_app_factories()
+
+        if not factory_info:
+            return None
+
+        # Check if the main file imports and exposes the factory
+        if self.main_app_file:
+            main_file_path = os.path.join(self.project_path, self.main_app_file)
+            try:
+                with open(main_file_path, 'r', encoding='utf-8') as f:
+                    main_content = f.read()
+
+                # Check if main file imports the factory and creates an app
+                for factory in factory_info:
+                    factory_module = factory['module']
+                    factory_func = factory['function']
+
+                    # Look for imports of this factory
+                    import_patterns = [
+                        f"from {factory_module} import {factory_func}",
+                        f"from {factory_module} import create_app",
+                        f"import {factory_module}",
+                    ]
+
+                    for pattern in import_patterns:
+                        if pattern in main_content:
+                            # Main file imports the factory, likely creates app variable
+                            app_var = self._find_app_variable_in_file(main_file_path)
+                            if app_var:
+                                module_name = os.path.splitext(self.main_app_file.replace('/', '.').replace('\\', '.'))[
+                                    0]
+                                print(f"✓ Main file uses factory, exposes as: {app_var}")
+                                return f"{module_name}:{app_var}"
+
+            except Exception as e:
+                print(f"Error analyzing main file for factory usage: {e}")
+
+        # Use factory directly if no wrapper found
+        if factory_info:
+            factory = factory_info[0]  # Use first factory found
+            print(f"✓ Using factory directly: {factory['module']}:{factory['function']}")
+            return f"{factory['module']}:{factory['function']}"
+
+        return None
+
+    def _deep_flask_analysis(self):
+        """Deep analysis of all Python files to understand Flask setup"""
+        flask_apps = []
+
+        # Scan all Python files for Flask instantiation
+        for root, dirs, files in os.walk(self.project_path):
+            # Skip common non-source directories
+            dirs[:] = [d for d in dirs if
+                       not d.startswith('.') and d not in ['__pycache__', 'node_modules', 'venv', '.venv']]
+
+            for file in files:
+                if file.endswith('.py'):
+                    file_path = os.path.join(root, file)
+                    rel_path = os.path.relpath(file_path, self.project_path)
+
+                    apps = self._analyze_file_for_flask_apps(file_path, rel_path)
+                    flask_apps.extend(apps)
+
+        if not flask_apps:
+            return None
+
+        # Prioritize apps based on likelihood of being the main app
+        priority_order = [
+            lambda app: app['file'] == self.main_app_file,  # Main file gets highest priority
+            lambda app: app['file'] in ['wsgi.py', 'app.py', 'application.py'],  # Common names
+            lambda app: app['file'].endswith('app.py'),  # Any file ending with app.py
+            lambda app: app['type'] == 'direct',  # Direct instantiation over factories
+            lambda app: 'main' in app['file'] or 'run' in app['file'],  # Main/run files
+        ]
+
+        for priority_func in priority_order:
+            for app in flask_apps:
+                if priority_func(app):
+                    print(f"✓ Selected app by priority: {app['flask_app']}")
+                    return app['flask_app']
+
+        # Fallback to first app found
+        if flask_apps:
+            print(f"✓ Using first app found: {flask_apps[0]['flask_app']}")
+            return flask_apps[0]['flask_app']
+
+        return None
+
+    def _find_app_variable_in_file(self, file_path):
+        """Find Flask app variable in a specific file"""
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+
+            # Look for app variable assignments
+            patterns = [
+                r'^(app)\s*=\s*Flask\s*\(',
+                r'^(application)\s*=\s*Flask\s*\(',
+                r'^(app)\s*=\s*create_app\s*\(',
+                r'^(application)\s*=\s*create_app\s*\(',
+                r'^(app)\s*=\s*[\w\.]+\s*\(',
+                r'^(application)\s*=\s*[\w\.]+\s*\(',
+            ]
+
+            for pattern in patterns:
+                matches = re.findall(pattern, content, re.MULTILINE)
+                if matches:
+                    return matches[0]
+
+        except Exception:
+            pass
+
+        return None
+
+    def _find_app_factories(self):
+        """Find app factory functions in the project"""
+        factories = []
+
+        for root, dirs, files in os.walk(self.project_path):
+            dirs[:] = [d for d in dirs if
+                       not d.startswith('.') and d not in ['__pycache__', 'node_modules', 'venv', '.venv']]
+
+            for file in files:
+                if file.endswith('.py'):
+                    file_path = os.path.join(root, file)
+                    rel_path = os.path.relpath(file_path, self.project_path)
+
+                    try:
+                        with open(file_path, 'r', encoding='utf-8') as f:
+                            content = f.read()
+
+                        # Look for factory function definitions
+                        factory_pattern = r'def\s+(create_app|make_app|app_factory)\s*\([^)]*\):'
+                        matches = re.findall(factory_pattern, content)
+
+                        for func_name in matches:
+                            module_path = rel_path.replace('\\', '/').replace('.py', '').replace('/', '.')
+                            if module_path.endswith('.__init__'):
+                                module_path = module_path[:-9]  # Remove .__init__
+
+                            factories.append({
+                                'function': func_name,
+                                'module': module_path,
+                                'file': rel_path
+                            })
+
+                    except Exception:
+                        continue
+
+        return factories
+
+    def _analyze_file_for_flask_apps(self, file_path, rel_path):
+        """Analyze a single file for Flask app definitions"""
+        apps = []
+
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+
+            # Direct Flask instantiation
+            direct_pattern = r'^(\w+)\s*=\s*Flask\s*\('
+            direct_matches = re.findall(direct_pattern, content, re.MULTILINE)
+
+            for var_name in direct_matches:
+                module_path = rel_path.replace('\\', '/').replace('.py', '').replace('/', '.')
+                apps.append({
+                    'type': 'direct',
+                    'variable': var_name,
+                    'module': module_path,
+                    'file': rel_path,
+                    'flask_app': f"{module_path}:{var_name}"
+                })
+
+            # Factory usage (create_app calls)
+            factory_pattern = r'^(\w+)\s*=\s*create_app\s*\('
+            factory_matches = re.findall(factory_pattern, content, re.MULTILINE)
+
+            for var_name in factory_matches:
+                module_path = rel_path.replace('\\', '/').replace('.py', '').replace('/', '.')
+                apps.append({
+                    'type': 'factory_call',
+                    'variable': var_name,
+                    'module': module_path,
+                    'file': rel_path,
+                    'flask_app': f"{module_path}:{var_name}"
+                })
+
+        except Exception:
+            pass
+
+        return apps
 
 
 def main():
@@ -1049,6 +1381,16 @@ def main():
         pass
 
     app = FlaskServerManager(root)
+
+    # Load flask_app_override from config after widgets are created
+    if hasattr(app, 'flask_app_var') and os.path.exists(app.config_file):
+        try:
+            with open(app.config_file, 'r') as f:
+                config = json.load(f)
+                flask_app_override = config.get('flask_app_override', '')
+                app.flask_app_var.set(flask_app_override)
+        except:
+            pass
 
     # Center the window
     root.update_idletasks()
