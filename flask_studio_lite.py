@@ -350,25 +350,37 @@ class UniversalFlaskStudio:
 
         self.log("🐍 Detecting Python executable...")
 
-        # Check for virtual environments
         venv_patterns = ['.venv', 'venv', '.env', 'env', 'virtualenv']
 
-        for pattern in venv_patterns:
-            venv_path = os.path.join(self.project_path, pattern)
+        # Search project root and immediate subdirectories
+        search_dirs = [self.project_path]
+        try:
+            for item in os.listdir(self.project_path):
+                item_path = os.path.join(self.project_path, item)
+                if os.path.isdir(item_path) and not item.startswith('.') and item not in ['__pycache__', 'node_modules']:
+                    search_dirs.append(item_path)
+        except Exception:
+            pass
 
-            # Windows
-            python_exe = os.path.join(venv_path, 'Scripts', 'python.exe')
-            if os.path.exists(python_exe):
-                self.python_var.set(python_exe)
-                self.log(f"✅ Found virtual environment: {pattern}")
-                return
+        for search_dir in search_dirs:
+            for pattern in venv_patterns:
+                venv_path = os.path.join(search_dir, pattern)
 
-            # Unix/Linux/Mac
-            python_exe = os.path.join(venv_path, 'bin', 'python')
-            if os.path.exists(python_exe):
-                self.python_var.set(python_exe)
-                self.log(f"✅ Found virtual environment: {pattern}")
-                return
+                # Windows
+                python_exe = os.path.join(venv_path, 'Scripts', 'python.exe')
+                if os.path.exists(python_exe):
+                    self.python_var.set(python_exe)
+                    rel = os.path.relpath(venv_path, self.project_path)
+                    self.log(f"✅ Found virtual environment: {rel}")
+                    return
+
+                # Unix/Linux/Mac
+                python_exe = os.path.join(venv_path, 'bin', 'python')
+                if os.path.exists(python_exe):
+                    self.python_var.set(python_exe)
+                    rel = os.path.relpath(venv_path, self.project_path)
+                    self.log(f"✅ Found virtual environment: {rel}")
+                    return
 
         # Fallback to system Python
         self.log("⚠️ Using system Python (no virtual environment found)")
@@ -491,13 +503,19 @@ class UniversalFlaskStudio:
             if self.reload_var.get():
                 cmd.append('--reload')
 
+            # Windows: CREATE_NO_WINDOW prevents WinError 87 from Werkzeug's reloader
+            creationflags = subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
+
             self.server_process = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
-                universal_newlines=True,
+                text=True,
+                encoding='utf-8',
+                errors='replace',
                 env=env,
-                cwd=self.project_path
+                cwd=self.project_path,
+                creationflags=creationflags
             )
 
             # Read output
@@ -509,7 +527,8 @@ class UniversalFlaskStudio:
                     break
 
         except Exception as e:
-            self.root.after(0, lambda: self.log(f"❌ Error: {str(e)}"))
+            err_msg = str(e)
+            self.root.after(0, lambda msg=err_msg: self.log(f"❌ Error: {msg}"))
 
         # Server stopped
         self.root.after(0, self._server_stopped)
